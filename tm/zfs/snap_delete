@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2023, OpenNebula Project, OpenNebula Systems                #
+# Copyright 2002-2023, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -16,16 +16,20 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-# ln - fe SOURCE host remote_system_ds vm_id ds_id
+# snap_delete  host:parent_image snap_id vm_id ds_id
 
 SRC=$1
-DST=$2
+SNAP_ID=$2
+VM_ID=$3
+DS_ID=$4
 
 if [ -z "${ONE_LOCATION}" ]; then
     TMCOMMON=/var/lib/one/remotes/tm/tm_common.sh
 else
     TMCOMMON=$ONE_LOCATION/var/remotes/tm/tm_common.sh
 fi
+
+DRIVER_PATH=$(dirname $0)
 
 source $TMCOMMON
 source ${DRIVER_PATH}/../../datastore/zfs/zfs.conf
@@ -37,20 +41,34 @@ source ${DRIVER_PATH}/../../datastore/zfs/zfs.conf
 SRC_HOST=`arg_host $SRC`
 SRC_PATH=`arg_path $SRC`
 
-DST_PATH=`arg_path $DST`
-DST_HOST=`arg_host $DST`
-DST_DIR=`dirname $DST_PATH`
+SNAPSHOT_NAME="one-snapshot-${SNAP_ID}"
 
-DEV="/dev/zvol/$SRC_PATH"
+#-------------------------------------------------------------------------------
+# Get Image information
+#-------------------------------------------------------------------------------
 
-LINK_CMD=$(cat <<EOF
+if [ "$SRC_HOST" != "localhost" ]; then 
+    ZVOL=$(ssh ${SRC_HOST} readlink ${SRC_PATH} | awk -F '/' '{ print $NF }' )
+    ZPOOL=$(ssh ${SRC_HOST} readlink ${SRC_PATH} | awk -F '/' '{ print $(NF-1) }' )
+else
+    ZVOL=$(readlink ${SRC_PATH} | awk -F '/' '{ print $NF }' )
+    ZPOOL=$(readlink ${SRC_PATH} | awk -F '/' '{ print $(NF-1) }' )
+fi
+
+#-------------------------------------------------------------------------------
+# Destroy snapshot
+#-------------------------------------------------------------------------------
+
+log "Destroy snapshot of ${SNAPSHOT_NAME}"
+
+DUMP_CMD=$(cat <<EOF
     set -e
-    mkdir -p $DST_DIR
-    rm -f "$DST_PATH"
-    ln -s "$DEV" "$DST_PATH"
+    $SUDO $ZFS_CMD destroy ${ZPOOL}/${ZVOL}@${SNAPSHOT_NAME}
+
 EOF
 )
 
-ssh_exec_and_log "$DST_HOST" "$LINK_CMD" \
-        "Error linking $DEV"
+ssh_exec_and_log "${SRC_HOST}" "${DUMP_CMD}" \
+                 "Error deleting snapshot ${SRC_HOST}:${ZPOOL}/${ZVOL}@${SNAPSHOT_NAME}"
+
 exit 0

@@ -32,7 +32,7 @@ Password-less ssh access to an OpenNebula ZFS host. (eg. localhost)
 
 The oneadmin user should be able to execute ZFS related command with sudo passwordlessly.
 
-* Password-less sudo permission for: `zfs` and `dd`.
+* Password-less sudo permission for: `zfs`,`dd`,`qemu-img` and `sync`.
 * `oneadmin` needs to belong to the `disk` group (for KVM).
 
 ## Limitations
@@ -109,8 +109,8 @@ First we add `zfs` as an option, replace:
 
 ~~~~
 TM_MAD = [
-    executable = "one_tm",
-    arguments = "-t 15 -d dummy,lvm,shared,fs_lvm,qcow2,ssh,vmfs,ceph"
+    EXECUTABLE = "one_tm",
+    ARGUMENTS = "-t 15 -d dummy,lvm,shared,fs_lvm,fs_lvm_ssh,qcow2,ssh,ceph,dev,vcenter,iscsi_libvirt"
 ]
 ~~~~
 
@@ -118,8 +118,8 @@ With:
 
 ~~~~
 TM_MAD = [
-    executable = "one_tm",
-    arguments = "-t 15 -d dummy,lvm,shared,fs_lvm,qcow2,ssh,vmfs,ceph,zfs"
+    EXECUTABLE = "one_tm",
+    ARGUMENTS = "-t 15 -d dummy,lvm,shared,fs_lvm,fs_lvm_ssh,qcow2,ssh,ceph,dev,vcenter,iscsi_libvirt,zfs"
 ]
 ~~~~
 
@@ -127,7 +127,9 @@ After that create a new TM_MAD_CONF section:
 
 ~~~~
 TM_MAD_CONF = [
-    name = "zfs", ln_target = "NONE", clone_target = "SELF", shared = "yes"
+    NAME = "zfs", LN_TARGET = "NONE", CLONE_TARGET = "SELF", DRIVER = "raw", SHARED = "YES",
+    TM_MAD_SYSTEM = "shared", LN_TARGET_SHARED = "NONE", CLONE_TARGET_SHARED = "SELF",
+    DISK_TYPE_SHARED = "BLOCK", ALLOW_ORPHANS="MIXED"
 ]
 ~~~~
 
@@ -135,8 +137,8 @@ Now we add `zfs` as a new `DATASTORE_MAD` option, replace:
 
 ~~~~
 DATASTORE_MAD = [
-    executable = "one_datastore",
-    arguments  = "-t 15 -d dummy,fs,vmfs,lvm,ceph"
+    EXECUTABLE = "one_datastore",
+    ARGUMENTS  = "-t 15 -d dummy,fs,lvm,ceph,dev,iscsi_libvirt,vcenter,restic,rsync -s shared,ssh,ceph,fs_lvm,fs_lvm_ssh,qcow2,vcenter"
 ]
 ~~~~
 
@@ -144,17 +146,33 @@ With:
 
 ~~~~
 DATASTORE_MAD = [
-    executable = "one_datastore",
-    arguments  = "-t 15 -d dummy,fs,vmfs,lvm,ceph,zfs"
+    EXECUTABLE = "one_datastore",
+    ARGUMENTS  = "-t 15 -d dummy,fs,lvm,ceph,dev,iscsi_libvirt,vcenter,restic,rsync,zfs -s shared,ssh,ceph,fs_lvm,fs_lvm_ssh,qcow2,vcenter,zfs"
 ]
 ~~~~
 
-For OpenNebula 5.0 we also need to  create a new DS_MAD_CONF section:
+For OpenNebula 5.0+ we also need to  create a new DS_MAD_CONF section:
 
 ~~~~
 DS_MAD_CONF = [
     NAME = "zfs", REQUIRED_ATTRS = "DISK_TYPE", PERSISTENT_ONLY = "NO"
 ]
+~~~~
+
+## Enable live snapshot
+
+These values must be changed in `/etc/one/vmm_exec/vmm_execrc`
+
+Replace:
+
+~~~~
+LIVE_DISK_SNAPSHOTS="kvm-qcow2 kvm-shared kvm-ceph kvm-ssh qemu-qcow2 qemu-shared qemu-ceph qemu-ssh"
+~~~~
+
+With:
+
+~~~~
+LIVE_DISK_SNAPSHOTS="kvm-qcow2 kvm-shared kvm-ceph kvm-ssh qemu-qcow2 qemu-shared qemu-ceph qemu-ssh kvm-zfs qemu-zfs"
 ~~~~
 
 ## Usage 
@@ -165,7 +183,7 @@ The ZFS transfer driver will create volume with zfs. Once the zvol is available,
 
 The host must have ZFS and have the dataset used in the `DATASET` attributed of the datastore template. 
 
-It’s also required to have password-less sudo permission for `zfs` and `dd`.
+It’s also required to have password-less sudo permission for `zfs`,`dd`,`qemu-img` and `sync`.
 
 ## Tuning & Extending
 
@@ -191,5 +209,3 @@ Under ``/var/lib/one/remotes/``:
 
 * Due [this issue](https://github.com/zfsonlinux/zfs/issues/824) use more large values of `volblocksize`.
 * Also you may to turn on the writeback cache or set `io` to `native`
-
-

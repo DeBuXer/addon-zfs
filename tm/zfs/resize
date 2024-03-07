@@ -16,10 +16,11 @@
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
 
-# ln - fe SOURCE host remote_system_ds vm_id ds_id
+# resize image size vmid
 
 SRC=$1
-DST=$2
+SIZE=$2
+VM_ID=$3
 
 if [ -z "${ONE_LOCATION}" ]; then
     TMCOMMON=/var/lib/one/remotes/tm/tm_common.sh
@@ -27,30 +28,43 @@ else
     TMCOMMON=$ONE_LOCATION/var/remotes/tm/tm_common.sh
 fi
 
+DRIVER_PATH=$(dirname $0)
+
 source $TMCOMMON
 source ${DRIVER_PATH}/../../datastore/zfs/zfs.conf
 
 #-------------------------------------------------------------------------------
-# Set dst path and dir
+# Set information
 #-------------------------------------------------------------------------------
 
 SRC_HOST=`arg_host $SRC`
 SRC_PATH=`arg_path $SRC`
 
-DST_PATH=`arg_path $DST`
-DST_HOST=`arg_host $DST`
-DST_DIR=`dirname $DST_PATH`
+#-------------------------------------------------------------------------------
+# Get Image information
+#-------------------------------------------------------------------------------
 
-DEV="/dev/zvol/$SRC_PATH"
+if [ "$SRC_HOST" != "localhost" ]; then 
+    ZVOL=$(ssh ${SRC_HOST} readlink ${SRC_PATH} | awk -F '/' '{ print $NF }' )
+    ZPOOL=$(ssh ${SRC_HOST} readlink ${SRC_PATH} | awk -F '/' '{ print $(NF-1) }' )
+else
+    ZVOL=$(readlink ${SRC_PATH} | awk -F '/' '{ print $NF }' )
+    ZPOOL=$(readlink ${SRC_PATH} | awk -F '/' '{ print $(NF-1) }' )
+fi
 
-LINK_CMD=$(cat <<EOF
+#-------------------------------------------------------------------------------
+# Resize disk
+#-------------------------------------------------------------------------------
+
+log "Resize ${ZVOL}"
+
+DUMP_CMD=$(cat <<EOF
     set -e
-    mkdir -p $DST_DIR
-    rm -f "$DST_PATH"
-    ln -s "$DEV" "$DST_PATH"
+    $SUDO $ZFS_CMD set volsize=${SIZE}MB ${ZPOOL}/${ZVOL}
 EOF
 )
 
-ssh_exec_and_log "$DST_HOST" "$LINK_CMD" \
-        "Error linking $DEV"
+ssh_exec_and_log "${SRC_HOST}" "${DUMP_CMD}" \
+                 "Error resizing ${SRC_HOST}:${ZPOOL}/${ZVOL}"
+
 exit 0

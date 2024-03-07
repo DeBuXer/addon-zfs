@@ -67,11 +67,31 @@ CLONE="${XPATH_ELEMENTS[j++]}"
 
 IMAGE_PATH=`arg_path $IMAGE_SRC`
 DST_PATH=`arg_path $DST`
-SNAPSHOT_NAME="${VM_ID}-${DISK_ID}"
 
-#-------------------------------------------------------------------------------
-# Copy Image back to the datastore
-#-------------------------------------------------------------------------------
+# Writable Snapshot option
+IMAGE_ID=$(echo ${IMAGE_SRC} | awk -F '-' '{ print $2 }')
+unset i j XPATH_ELEMENTS
+
+while IFS= read -r -d '' element; do
+    XPATH_ELEMENTS[i++]="$element"
+done < <(oneimage show -x $IMAGE_ID| $XPATH \
+		/IMAGE/TEMPLATE/WRITABLE_SNAPSHOT)
+
+WRITABLE_SNAPSHOT="${XPATH_ELEMENTS[j++]}"
+
+if [ -z "${WRITABLE_SNAPSHOT}" ]; then
+	WRITABLE_SNAPSHOT="FALSE"
+else
+	WRITABLE_SNAPSHOT=$(echo ${WRITABLE_SNAPSHOT} | awk '{print toupper($0)}')
+fi
+
+if [ "$SNAP_ID" == "-1 "]; then
+    # Save-As from image
+    SNAPSHOT_NAME="${VM_ID}-${DISK_ID}-CLONE"
+else
+    # Save-As from snapshot
+    SNAPSHOT_NAME="one-snapshot-${SNAP_ID}"
+fi
 
 if [ "$CLONE" = "NO" ]; then
     CLONE_PATH="${IMAGE_PATH}"
@@ -79,15 +99,37 @@ else
     CLONE_PATH="${IMAGE_PATH}-${VM_ID}-${DISK_ID}"
 fi
 
+#-------------------------------------------------------------------------------
+# Copy Image back to the datastore
+#-------------------------------------------------------------------------------
+
 log "Dumping $SRC to $DST"
 
-DUMP_CMD=$(cat <<EOF
-    set -e
-    $SUDO $ZFS_CMD snapshot ${CLONE_PATH}@${SNAPSHOT_NAME}
-    $SUDO $ZFS_CMD clone ${CLONE_PATH}@${SNAPSHOT_NAME} ${DST_PATH}
-    $SUDO $ZFS_CMD promote ${DST_PATH}
+if [ "${WRITABLE_SNAPSHOT}" == "TRUE" ]; then
+    DUMP_CMD=$("set -e && $SUDO $ZFS_CMD clone ${CLONE_PATH}@${SNAPSHOT_NAME} ${DST_PATH}")
+else
+    DUMP_CMD=$(cat <<EOF
+        set -e
+
+        # Save-As from image
+        if [ "$SNAP_ID" == "-1" ]; then
+            $SUDO $ZFS_CMD snapshot ${CLONE_PATH}@${SNAPSHOT_NAME}
+            $SUDO $ZFS_CMD send -R ${CLONE_PATH}@${SNAPSHOT_NAME} | $SUDO $ZFS_CMD recv -F ${DST_PATH}
+            $SUDO $ZFS_CMD destroy ${CLONE_PATH}@${SNAPSHOT_NAME}
+        
+        # Save-As from snapshot
+        else
+            $SUDO $ZFS_CMD send -R ${CLONE_PATH}@${SNAPSHOT_NAME} | $SUDO $ZFS_CMD recv -F ${DST_PATH}
+        fi
+
+        # Remove snapshots on clone
+        RES=$($SUDO $ZFS_CMD list -H -o name -t snapshot -r ${DST_PATH} | wc -l )
+        if [ "$RES" != "0" ]; then
+            $SUDO $ZFS_CMD list -H -o name -t snapshot -r ${DST_PATH} | xargs -n1 $SUDO zfs destroy
+        fi
 EOF
 )
+fi
 
 ssh_exec_and_log "$SRC_HOST" "$DUMP_CMD" \
                  "Error cloning $SRC_HOST:$CLONE_PATH to $DST"

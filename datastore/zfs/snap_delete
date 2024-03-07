@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # -------------------------------------------------------------------------- #
-# Copyright 2002-2015, OpenNebula Project (OpenNebula.org), C12G Labs        #
+# Copyright 2002-2023, OpenNebula Project (OpenNebula.org), C12G Labs        #
 #                                                                            #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may    #
 # not use this file except in compliance with the License. You may obtain    #
@@ -15,10 +15,6 @@
 # See the License for the specific language governing permissions and        #
 # limitations under the License.                                             #
 #--------------------------------------------------------------------------- #
-
-###############################################################################
-# This script is used to monitor the free and used space of a datastore
-###############################################################################
 
 # -------- Set up the environment to source common tools & conf ------------
 
@@ -34,7 +30,7 @@ DRIVER_PATH=$(dirname $0)
 source ${DRIVER_PATH}/../libfs.sh
 source ${DRIVER_PATH}/zfs.conf
 
-# -------- Get datastore arguments from OpenNebula core ------------
+# -------- Get cp and datastore arguments from OpenNebula core ------------
 
 if [ -n "$2" ]; then
     DRV_ACTION="$1"
@@ -46,45 +42,29 @@ fi
 
 XPATH="${DRIVER_PATH}/../xpath.rb -b $DRV_ACTION"
 
-unset i j XPATH_ELEMENTS
+unset i XPATH_ELEMENTS
 
 while IFS= read -r -d '' element; do
     XPATH_ELEMENTS[i++]="$element"
-done < <($XPATH     /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/BRIDGE_LIST \
-                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/ZFS_CMD \
-                    /DS_DRIVER_ACTION_DATA/DATASTORE/TEMPLATE/DATASET_NAME)
+done < <($XPATH     /DS_DRIVER_ACTION_DATA/IMAGE/SOURCE \
+                    /DS_DRIVER_ACTION_DATA/IMAGE/TARGET_SNAPSHOT)
 
 unset i
 
-BRIDGE_LIST="${XPATH_ELEMENTS[i++]}"
-ZFS_CMD="${XPATH_ELEMENTS[i++]:-$ZFS_CMD}"
-DATASET_NAME="${XPATH_ELEMENTS[i++]:-$DATASET_NAME}"
+SRC="${XPATH_ELEMENTS[i++]}"
+SNAP_ID="${XPATH_ELEMENTS[i++]}"
+DST_HOST=$(echo ${SRC} | awk -F ':' '{ print $1 }')
+ZVOL=$(echo ${SRC} | awk -F ':' '{ print $2 }')
+SNAPSHOT_NAME="one-snapshot-${SNAP_ID}"
 
-HOST=`get_destination_host`
-
-if [ -z "$HOST" ]; then
-    error_message "Datastore template missing 'BRIDGE_LIST' attribute."
-    exit -1
-fi
-
-# ------------ Compute datastore usage -------------
-MONITOR_SCRIPT=$(cat <<EOF
+DESTROY_CMD=$(cat <<EOF
     set -e
-    TOTAL_MB=\$($SUDO $ZFS_CMD list -H -p  -o available,used $DATASET_NAME | $AWK '{printf "%d", (\$1+\$2)/1024/1024}'  | $TR -d ' ')
-    FREE_MB=\$($SUDO $ZFS_CMD get -H -p available $DATASET_NAME | $AWK '{printf "%d",\$3/1024/1024}' | $TR -d ' ')
-    USED_MB=\$($SUDO $ZFS_CMD get -H -p used $DATASET_NAME | $AWK '{printf "%d",\$3/1024/1024}' | $TR -d ' ')
-    echo "USED_MB=\$USED_MB"
-    echo "TOTAL_MB=\$TOTAL_MB"
-    echo "FREE_MB=\$FREE_MB"
+    $SUDO $ZFS_CMD destroy ${ZVOL}@${SNAPSHOT_NAME}
+
 EOF
 )
 
-MONITOR_DATA=$(ssh_monitor_and_log $HOST "$MONITOR_SCRIPT" 2>&1)
-MONITOR_STATUS=$?
+ssh_exec_and_log "$DST_HOST" "$DESTROY_CMD" \
+    "Error removing snapshot ${ZVOL}@${SNAPSHOT_NAME}"
 
-if [ "$MONITOR_STATUS" = "0" ]; then
-    echo "$MONITOR_DATA" | tr ' ' '\n'
-else
-    echo "$MONITOR_DATA"
-    exit $MONITOR_STATUS
-fi
+exit 0

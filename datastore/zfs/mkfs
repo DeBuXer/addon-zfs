@@ -37,8 +37,13 @@ source ${DRIVER_PATH}/zfs.conf
 
 # -------- Get mkfs and datastore arguments from OpenNebula core ------------
 
-DRV_ACTION=$1
-ID=$2
+if [ -n "$2" ]; then
+    DRV_ACTION="$1"
+    ID="$2"
+else
+    DRV_ACTION=`cat -`
+    ID="$1"
+fi
 
 XPATH="${DRIVER_PATH}/../xpath.rb -b $DRV_ACTION"
 
@@ -107,19 +112,11 @@ REGISTER_CMD=$(cat <<EOF
         fi
     done
 
-    $SUDO chown oneadmin: $DEV
     $SUDO $MKFS_COMMAND 
 
     fi
 EOF
 )
-
-# ------------ Image to save_as disk, no need to create a FS ------------
-
-if [ "$FSTYPE" = "save_as" ]; then
-    echo "$ZVOL_SOURCE"
-    exit 0
-fi
 
 # ------------ Create the image to the repository ------------
 

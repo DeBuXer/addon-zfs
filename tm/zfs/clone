@@ -51,7 +51,7 @@ DST_PATH=`arg_path $DST`
 DST_DIR=`dirname $DST_PATH`
 DISK_ID=$(echo $DST_PATH|awk -F. '{print $NF}')
 
-SNAPSHOT_NAME="${VM_ID}-${DISK_ID}"
+SNAPSHOT_NAME="${VM_ID}-${DISK_ID}-NON_PERSISTENT_CLONE"
 CLONE_PATH="$SRC_PATH-$VM_ID-$DISK_ID"
 CLONE_DEV="/dev/zvol/$CLONE_PATH"
 
@@ -76,6 +76,8 @@ ORIGINAL_SIZE="${XPATH_ELEMENTS[j++]}"
 # Clone the image
 #-------------------------------------------------------------------------------
 
+log "Creating clone of one-${DISK_ID}"
+
 CLONE_CMD=$(cat <<EOF
     set -e
     mkdir -p $DST_DIR
@@ -92,7 +94,6 @@ CLONE_CMD=$(cat <<EOF
         fi
     done
 
-    $SUDO chown oneadmin: $CLONE_DEV
     rm -f "$DST_PATH"
     ln -s "$CLONE_DEV" "$DST_PATH"
 EOF
